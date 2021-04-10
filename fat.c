@@ -434,10 +434,7 @@ clearchain(struct bootblock *boot, struct fatEntry *fat, cl_t head)
 int
 tryclear(struct bootblock *boot, struct fatEntry *fat, cl_t head, cl_t *truncp)
 {
-	if (ask(0, "Clear chain starting at %u", head)) {
-		clearchain(boot, fat, head);
-		return FSFATMOD;
-	} else if (ask(0, "Truncate")) {
+	if (ask(0, "Truncate")) {
 		uint32_t len;
 		cl_t p;
 
@@ -447,6 +444,9 @@ tryclear(struct bootblock *boot, struct fatEntry *fat, cl_t head, cl_t *truncp)
 			continue;
 		*truncp = CLUST_EOF;
 		fat[head].length = len;
+		return FSFATMOD;
+	} else if (ask(0, "Clear chain starting at %u", head)) {
+		clearchain(boot, fat, head);
 		return FSFATMOD;
 	} else
 		return FSERROR;
@@ -645,8 +645,8 @@ writefat(int fs, struct bootblock *boot, struct fatEntry *fat, int correct_fat)
 				break;
 			if (fat[cl].next == CLUST_FREE)
 				boot->NumFree++;
-			*p++ |= (u_char)(fat[cl + 1].next << 4);
-			*p++ = (u_char)(fat[cl + 1].next >> 4);
+			*p++ |= (u_char)(fat[cl].next << 4);
+			*p++ = (u_char)(fat[cl].next >> 4);
 			break;
 		}
 	}
@@ -704,6 +704,20 @@ checklost(int dosfs, struct bootblock *boot, struct fatEntry *fat)
 				boot->FSFree = boot->NumFree;
 				ret = 1;
 			}
+		}
+		if (boot->FSNext != 0xffffffffU &&
+		    (boot->FSNext >= boot->NumClusters ||
+		    (boot->NumFree && fat[boot->FSNext].next != CLUST_FREE))) {
+			pwarn("Next free cluster in FSInfo block (%u) %s\n",
+			      boot->FSNext,
+			      (boot->FSNext >= boot->NumClusters) ? "invalid" : "not free");
+			if (ask(1, "fix"))
+				for (head = CLUST_FIRST; head < boot->NumClusters; head++)
+					if (fat[head].next == CLUST_FREE) {
+						boot->FSNext = head;
+						ret = 1;
+						break;
+					}
 		}
 		if (ret)
 			mod |= writefsinfo(dosfs, boot);
